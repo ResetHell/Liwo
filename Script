@@ -266,26 +266,81 @@ local meleeWeapons = {
     "Sledgehammer",
     "Spear",
     "Greataxe",
-    "Photon Blades"
+    "Photon Blades",
+    -- Added more common melee weapon names
+    "Sword",
+    "Knife",
+    "Axe",
+    "Hammer",
+    "Blade",
+    "Club",
+    "Dagger",
+    "Mace"
 }
 local killauraDelay = 0.1 -- Default delay between attacks in seconds
 local lastAttackTime = 0 -- Track the last time an attack was performed
+local forceAttack = false -- New option to force attacks even without a melee weapon
 
+-- Improved isHoldingMelee function with better detection
 local function isHoldingMelee()
+    -- If force attack is enabled, always return true
+    if forceAttack then
+        print("Kill Aura: Force attack enabled, bypassing weapon check")
+        return true
+    end
+    
     local player = game.Players.LocalPlayer
     local character = player.Character
-    if not character then return false end
+    if not character then 
+        print("Kill Aura: Character not found")
+        return false 
+    end
     
+    -- Check if player is holding any tool
     for _, tool in pairs(character:GetChildren()) do
         if tool:IsA("Tool") then
+            -- Debug print to see what tool is being held
+            print("Currently holding tool: " .. tool.Name)
+            
+            -- Check against melee weapon list
             for _, meleeName in pairs(meleeWeapons) do
-                if tool.Name:find(meleeName) then
+                if string.find(string.lower(tool.Name), string.lower(meleeName)) then
+                    print("Detected melee weapon: " .. tool.Name)
                     return true
                 end
             end
+            
+            -- If we have a tool but it's not in our list, let's consider it a melee weapon anyway
+            print("Tool not in melee list, but treating as melee: " .. tool.Name)
+            return true
         end
     end
     
+    -- Check if the game has a default attack mechanism (no tool required)
+    -- This is common in many Roblox fighting games
+    local combatFolder = game:GetService("ReplicatedStorage"):FindFirstChild("Combat")
+    if combatFolder and combatFolder:FindFirstChild("Hit") then
+        print("Kill Aura: Combat system detected, no tool needed")
+        return true
+    end
+    
+    -- Check for common combat remotes that don't require tools
+    local commonCombatRemotes = {
+        game:GetService("ReplicatedStorage"):FindFirstChild("MeleeDamage"),
+        game:GetService("ReplicatedStorage"):FindFirstChild("meleeEvent"),
+        game:GetService("ReplicatedStorage"):FindFirstChild("Attack"),
+        game:GetService("ReplicatedStorage"):FindFirstChild("HitEvent"),
+        game:GetService("ReplicatedStorage"):FindFirstChild("DamageEvent")
+    }
+    
+    for _, remote in pairs(commonCombatRemotes) do
+        if remote then
+            print("Kill Aura: Combat remote found: " .. remote.Name)
+            return true
+        end
+    end
+    
+    print("No tool found in character and no combat system detected")
     return false
 end
 
@@ -361,18 +416,39 @@ local function getTargetCharacters()
                     end
                 end
                 
-                -- Recursively search for NPCs in descendants
-                findNPCs(obj)
+                -- Recursively search for NPCs in descendants (but limit depth to avoid performance issues)
+                if #parent:GetChildren() < 50 then -- Only recurse if the parent doesn't have too many children
+                    findNPCs(obj)
+                end
             end
         end
         
-        findNPCs(workspace)
+        -- Start with main folders where NPCs are commonly placed
+        local commonNPCFolders = {
+            workspace:FindFirstChild("NPCs"),
+            workspace:FindFirstChild("Enemies"),
+            workspace:FindFirstChild("Mobs"),
+            workspace:FindFirstChild("Zombies"),
+            workspace:FindFirstChild("Monsters"),
+            workspace:FindFirstChild("Bots")
+        }
+        
+        for _, folder in pairs(commonNPCFolders) do
+            if folder then
+                findNPCs(folder)
+            end
+        end
+        
+        -- If no NPCs found in common folders, search workspace with limited depth
+        if #characters == 0 then
+            findNPCs(workspace)
+        end
     end
 
     return characters
 end
 
--- Improved Kill Aura function with better debugging and attack delay
+-- Improved Kill Aura function with better attack methods
 local function performKillAura()
     local currentTime = os.clock()
     
@@ -391,7 +467,7 @@ local function performKillAura()
     end
     
     if not isHoldingMelee() then 
-        print("Kill Aura: Not holding melee weapon")
+        print("Kill Aura: Not holding melee weapon or no combat system detected")
         return 
     end
     
@@ -411,54 +487,136 @@ local function performKillAura()
             if distance <= killauraRange then
                 print("Kill Aura: Attacking " .. character.Name .. " (Distance: " .. math.floor(distance) .. ")")
                 
-                -- Try multiple possible remote event paths
+                -- Try multiple possible attack methods
                 local success = false
                 
-                -- Attempt method 1: Combat.Hit in ReplicatedStorage
-                if game:GetService("ReplicatedStorage"):FindFirstChild("Combat") and 
-                   game:GetService("ReplicatedStorage").Combat:FindFirstChild("Hit") then
-                    pcall(function()
-                        game:GetService("ReplicatedStorage").Combat.Hit:FireServer(character, targetPart)
-                        success = true
-                    end)
-                end
-                
-                -- Attempt method 2: Direct melee tool activation
-                if not success then
-                    for _, tool in pairs(localChar:GetChildren()) do
-                        if tool:IsA("Tool") and tool:FindFirstChild("RemoteEvent") then
-                            pcall(function()
-                                tool.RemoteEvent:FireServer(character, targetPart)
-                                success = true
-                            end)
-                        end
+                -- Method 1: Try to use the tool's RemoteEvent directly
+                local equippedTool = nil
+                for _, tool in pairs(localChar:GetChildren()) do
+                    if tool:IsA("Tool") then
+                        equippedTool = tool
+                        break
                     end
                 end
                 
-                -- Attempt method 3: Common combat remote names
+                if equippedTool then
+                    -- Try to find and use the tool's RemoteEvent
+                    for _, obj in pairs(equippedTool:GetDescendants()) do
+                        if obj:IsA("RemoteEvent") then
+                            pcall(function()
+                                obj:FireServer(character, targetPart)
+                                success = true
+                                print("Kill Aura: Used tool remote: " .. obj:GetFullName())
+                            end)
+                            
+                            if success then break end
+                        end
+                    end
+                    
+                    -- Try to activate the tool directly
+                    if not success then
+                        pcall(function()
+                            equippedTool:Activate()
+                            -- Move character closer to target for the hit to register
+                            if (localRoot.Position - targetRoot.Position).Magnitude > 5 then
+                                localRoot.CFrame = targetRoot.CFrame * CFrame.new(0, 0, 3)
+                            end
+                            success = true
+                            print("Kill Aura: Activated tool directly")
+                        end)
+                    end
+                end
+                
+                -- Method 2: Try common combat remotes in ReplicatedStorage
                 if not success then
                     local commonRemotes = {
-                        game:GetService("ReplicatedStorage"):FindFirstChild("MeleeDamage"),
-                        game:GetService("ReplicatedStorage"):FindFirstChild("meleeEvent"),
-                        game:GetService("ReplicatedStorage"):FindFirstChild("Attack"),
-                        game:GetService("ReplicatedStorage"):FindFirstChild("HitEvent")
+                        {"Combat", "Hit"},
+                        {"Combat", "Attack"},
+                        {"MeleeCombat", "Attack"},
+                        {"MeleeDamage"},
+                        {"meleeEvent"},
+                        {"Attack"},
+                        {"HitEvent"},
+                        {"DamageEvent"},
+                        {"DamageRemote"},
+                        {"CombatRemote"}
                     }
                     
-                    for _, remote in pairs(commonRemotes) do
-                        if remote and not success then
-                            pcall(function()
-                                remote:FireServer(character, targetPart)
-                                success = true
-                            end)
+                    for _, remotePath in pairs(commonRemotes) do
+                        if type(remotePath) == "table" then
+                            -- Handle nested paths
+                            local currentFolder = game:GetService("ReplicatedStorage")
+                            local found = true
+                            
+                            for i, pathPart in ipairs(remotePath) do
+                                if i < #remotePath then
+                                    -- Navigate to subfolder
+                                    currentFolder = currentFolder:FindFirstChild(pathPart)
+                                    if not currentFolder then
+                                        found = false
+                                        break
+                                    end
+                                else
+                                    -- Last part is the remote
+                                    local remote = currentFolder:FindFirstChild(pathPart)
+                                    if remote and remote:IsA("RemoteEvent") and not success then
+                                        pcall(function()
+                                            remote:FireServer(character, targetPart)
+                                            success = true
+                                            print("Kill Aura: Used remote: " .. remote:GetFullName())
+                                        end)
+                                    end
+                                end
+                            end
+                        else
+                            -- Direct remote in ReplicatedStorage
+                            local remote = game:GetService("ReplicatedStorage"):FindFirstChild(remotePath)
+                            if remote and remote:IsA("RemoteEvent") and not success then
+                                pcall(function()
+                                    remote:FireServer(character, targetPart)
+                                    success = true
+                                    print("Kill Aura: Used remote: " .. remote:GetFullName())
+                                end)
+                            end
+                        end
+                        
+                        if success then break end
+                    end
+                end
+                
+                -- Method 3: Search for any RemoteEvent that might be related to combat
+                if not success then
+                    local function searchForCombatRemotes(parent)
+                        for _, obj in pairs(parent:GetChildren()) do
+                            if obj:IsA("RemoteEvent") and not success then
+                                local name = string.lower(obj.Name)
+                                if string.find(name, "hit") or string.find(name, "attack") or 
+                                   string.find(name, "damage") or string.find(name, "combat") or
+                                   string.find(name, "melee") then
+                                    pcall(function()
+                                        obj:FireServer(character, targetPart)
+                                        success = true
+                                        print("Kill Aura: Used found remote: " .. obj:GetFullName())
+                                    end)
+                                end
+                            end
+                            
+                            if #obj:GetChildren() > 0 and #obj:GetChildren() < 50 then
+                                searchForCombatRemotes(obj)
+                            end
+                            
+                            if success then break end
                         end
                     end
+                    
+                    searchForCombatRemotes(game:GetService("ReplicatedStorage"))
                 end
                 
                 if success then
                     print("Kill Aura: Successfully attacked " .. character.Name)
                     lastAttackTime = currentTime -- Update the last attack time
                 else
-                    print("Kill Aura: Failed to find attack remote for " .. character.Name)
+                    print("Kill Aura: Failed to find attack method for " .. character.Name)
                 end
             end
         else
@@ -486,6 +644,18 @@ Section1:AddToggle({
                 getgenv().killauraLoop:Disconnect()
             end
         end
+    end
+})
+
+-- Force Attack toggle (new)
+Section1:AddToggle({
+    text = "Force Attack",
+    state = false,
+    tooltip = "Attack even without a melee weapon",
+    flag = "ForceAttack_Toggle",
+    callback = function(state)
+        forceAttack = state
+        print("Force Attack set to: " .. tostring(state))
     end
 })
 
