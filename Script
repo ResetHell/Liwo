@@ -1,0 +1,551 @@
+local Decimals = 4
+local Clock = os.clock()
+local ValueText = "Value Is Now :"
+
+-- Auto detect game
+local gameName = "Unknown"
+if game.PlaceId == 8767500166 then
+    gameName = "BlackOut"
+end
+
+local library = loadstring(game:HttpGet("https://raw.githubusercontent.com/drillygzzly/Roblox-UI-Libs/main/1%20Tokyo%20Lib%20(FIXED)/Tokyo%20Lib%20Source.lua"))()
+library:init({
+    cheatname = "Liwo", -- watermark text
+    gamename = gameName -- auto-detected game name
+})
+
+local Window1 = library:NewWindow({
+    title = "Title Here | Title Here", -- Mainwindow Text
+    size = UDim2.new(0, 510, 0.6, 6)
+})
+
+local Tab1 = Window1:AddTab("  main  ")
+local SettingsTab = library:CreateSettingsTab(Window1)
+
+local Section1 = Tab1:AddSection("Section 1", 1)
+
+-- Noclip variables
+local noclipEnabled = false
+local function toggleNoclip(state)
+    local player = game.Players.LocalPlayer
+    local character = player.Character or player.CharacterAdded:Wait()
+    
+    noclipEnabled = state
+    
+    if state then
+        -- Enable noclip
+        local function updateNoclip()
+            if character and character:FindFirstChild("Humanoid") then
+                for _, part in pairs(character:GetDescendants()) do
+                    if part:IsA("BasePart") then
+                        part.CanCollide = false
+                    end
+                end
+            end
+        end
+        
+        -- Connect noclip function
+        getgenv().noclipConnection = game:GetService("RunService").Stepped:Connect(updateNoclip)
+    else
+        -- Disable noclip
+        if getgenv().noclipConnection then
+            getgenv().noclipConnection:Disconnect()
+        end
+        
+        -- Reset collision
+        if character then
+            for _, part in pairs(character:GetDescendants()) do
+                if part:IsA("BasePart") then
+                    part.CanCollide = true
+                end
+            end
+        end
+    end
+end
+
+-- Noclip toggle with keybind
+Section1:AddToggle({
+    text = "Noclip",
+    state = false,
+    tooltip = "Phase through objects",
+    flag = "Noclip_Toggle",
+    callback = function(state)
+        noclipEnabled = state
+        toggleNoclip(state)
+    end
+}):AddBind({
+    enabled = true,
+    text = "Noclip Key",
+    tooltip = "Hotkey for Noclip",
+    mode = "toggle",
+    bind = "None",
+    flag = "Noclip_Key",
+    state = false,
+    nomouse = false,
+    risky = false,
+    noindicator = false,
+    callback = function(state)
+        -- Update the toggle state through the library flags
+        local toggle = library.flags["Noclip_Toggle"]
+        library.flags["Noclip_Toggle"] = not toggle
+        toggleNoclip(not toggle)
+    end,
+    keycallback = function(v)
+        print("Noclip Key:", v)
+    end
+})
+
+-- Fly variables
+local flyEnabled = false
+local flySpeed = 50
+local function toggleFly(state)
+    local player = game.Players.LocalPlayer
+    local character = player.Character or player.CharacterAdded:Wait()
+    local humanoid = character:WaitForChild("Humanoid")
+    local hrp = character:WaitForChild("HumanoidRootPart")
+    
+    flyEnabled = state
+    
+    if state then
+        -- Enable fly
+        local bodyVelocity = Instance.new("BodyVelocity")
+        bodyVelocity.Name = "FlyVelocity"
+        bodyVelocity.MaxForce = Vector3.new(math.huge, math.huge, math.huge)
+        bodyVelocity.Velocity = Vector3.new(0, 0, 0)
+        bodyVelocity.Parent = hrp
+        
+        -- Fly control loop
+        getgenv().flyConnection = game:GetService("RunService").RenderStepped:Connect(function()
+            if not flyEnabled then return end
+            
+            local camera = workspace.CurrentCamera
+            local moveDirection = Vector3.new(0, 0, 0)
+            
+            -- Get movement input
+            if game:GetService("UserInputService"):IsKeyDown(Enum.KeyCode.W) then
+                moveDirection = moveDirection + camera.CFrame.LookVector
+            end
+            if game:GetService("UserInputService"):IsKeyDown(Enum.KeyCode.S) then
+                moveDirection = moveDirection - camera.CFrame.LookVector
+            end
+            if game:GetService("UserInputService"):IsKeyDown(Enum.KeyCode.A) then
+                moveDirection = moveDirection - camera.CFrame.RightVector
+            end
+            if game:GetService("UserInputService"):IsKeyDown(Enum.KeyCode.D) then
+                moveDirection = moveDirection + camera.CFrame.RightVector
+            end
+            if game:GetService("UserInputService"):IsKeyDown(Enum.KeyCode.Space) then
+                moveDirection = moveDirection + Vector3.new(0, 1, 0)
+            end
+            if game:GetService("UserInputService"):IsKeyDown(Enum.KeyCode.LeftControl) then
+                moveDirection = moveDirection - Vector3.new(0, 1, 0)
+            end
+            
+            -- Update velocity
+            if moveDirection.Magnitude > 0 then
+                bodyVelocity.Velocity = moveDirection.Unit * flySpeed
+            else
+                bodyVelocity.Velocity = Vector3.new(0, 0, 0)
+            end
+        end)
+    else
+        -- Disable fly
+        if getgenv().flyConnection then
+            getgenv().flyConnection:Disconnect()
+        end
+        
+        local bodyVelocity = hrp:FindFirstChild("FlyVelocity")
+        if bodyVelocity then
+            bodyVelocity:Destroy()
+        end
+    end
+end
+
+-- Fly toggle with keybind
+Section1:AddToggle({
+    text = "Fly",
+    state = false,
+    flag = "Fly_Toggle",
+    callback = function(state)
+        toggleFly(state)
+    end
+}):AddBind({
+    enabled = true,
+    text = "Fly Key",
+    tooltip = "Hotkey for Flying",
+    mode = "toggle",
+    bind = "None",
+    flag = "Fly_Key",
+    state = false,
+    nomouse = false,
+    risky = false,
+    noindicator = false,
+    callback = function(state)
+        local toggle = library.flags["Fly_Toggle"]
+        library.flags["Fly_Toggle"] = not toggle
+        toggleFly(not toggle)
+    end
+})
+
+-- Fly speed slider (fixed)
+Section1:AddSlider({
+    text = "Fly Speed",
+    tooltip = "Adjust flying speed",
+    min = 10,
+    max = 200,
+    float = 1,
+    flag = "Fly_Speed",
+    value = 50,
+    callback = function(value)
+        flySpeed = value
+    end
+})
+
+-- Speed hack variables
+local speedEnabled = false
+local speedMultiplier = 2
+
+-- Speed hack toggle and slider
+Section1:AddToggle({
+    text = "Speed",
+    state = false,
+    flag = "Speed_Toggle",
+    callback = function(state)
+        speedEnabled = state
+        
+        local player = game.Players.LocalPlayer
+        local character = player.Character or player.CharacterAdded:Wait()
+        local humanoid = character:WaitForChild("Humanoid")
+        
+        if state then
+            -- Enable speed hack
+            getgenv().speedConnection = game:GetService("RunService").Heartbeat:Connect(function()
+                if speedEnabled and humanoid then
+                    humanoid.WalkSpeed = 16 * speedMultiplier
+                end
+            end)
+        else
+            -- Disable speed hack
+            if getgenv().speedConnection then
+                getgenv().speedConnection:Disconnect()
+            end
+            if humanoid then
+                humanoid.WalkSpeed = 16
+            end
+        end
+    end
+})
+
+Section1:AddSlider({
+    text = "Speed Multiplier",
+    tooltip = "Adjust movement speed multiplier",
+    min = 1,
+    max = 10,
+    float = 0.1,
+    flag = "Speed_Multiplier",
+    value = speedMultiplier,
+    callback = function(value)
+        speedMultiplier = value
+    end
+})
+
+-- Kill Aura variables
+local killauraEnabled = false
+local killauraRange = 10
+local selectedTarget = "All Players"
+local selectedHitbox = "Head"
+local targetOptions = {"All Players", "Nearest Player", "Lowest Health", "All NPCs"}
+local hitboxOptions = {"Head", "HumanoidRootPart", "Torso", "Left Arm", "Right Arm", "Left Leg", "Right Leg"}
+local meleeWeapons = {
+    "Fist",
+    "Trench Knife",
+    "Tactical Knife",
+    "Tomahawk",
+    "Bat",
+    "Katana",
+    "Sledgehammer",
+    "Spear",
+    "Greataxe",
+    "Photon Blades"
+}
+local killauraDelay = 0.1 -- Default delay between attacks in seconds
+local lastAttackTime = 0 -- Track the last time an attack was performed
+
+local function isHoldingMelee()
+    local player = game.Players.LocalPlayer
+    local character = player.Character
+    if not character then return false end
+    
+    for _, tool in pairs(character:GetChildren()) do
+        if tool:IsA("Tool") then
+            for _, meleeName in pairs(meleeWeapons) do
+                if tool.Name:find(meleeName) then
+                    return true
+                end
+            end
+        end
+    end
+    
+    return false
+end
+
+-- Modify the getTargetCharacters function to better detect NPCs
+local function getTargetCharacters()
+    local characters = {}
+    local localPlayer = game.Players.LocalPlayer
+    local localRoot = localPlayer.Character and localPlayer.Character:FindFirstChild("HumanoidRootPart")
+    
+    if not localRoot then return {} end
+    
+    -- Target all players or NPCs based on the selectedTarget
+    if selectedTarget == "All Players" then
+        for _, player in pairs(game.Players:GetPlayers()) do
+            if player ~= localPlayer and player.Character and player.Character:FindFirstChild("Humanoid") and player.Character.Humanoid.Health > 0 then
+                table.insert(characters, player.Character)
+            end
+        end
+    elseif selectedTarget == "Nearest Player" then
+        local nearestPlayer = nil
+        local nearestDistance = math.huge
+        
+        for _, player in pairs(game.Players:GetPlayers()) do
+            if player ~= localPlayer and player.Character and player.Character:FindFirstChild("HumanoidRootPart") and player.Character:FindFirstChild("Humanoid") and player.Character.Humanoid.Health > 0 then
+                local distance = (localRoot.Position - player.Character.HumanoidRootPart.Position).Magnitude
+                if distance < nearestDistance then
+                    nearestDistance = distance
+                    nearestPlayer = player.Character
+                end
+            end
+        end
+        
+        if nearestPlayer then
+            table.insert(characters, nearestPlayer)
+        end
+    elseif selectedTarget == "Lowest Health" then
+        local lowestPlayer = nil
+        local lowestHealth = math.huge
+
+        for _, player in pairs(game.Players:GetPlayers()) do
+            if player ~= localPlayer and player.Character and player.Character:FindFirstChild("Humanoid") and player.Character.Humanoid.Health > 0 then
+                if player.Character.Humanoid.Health < lowestHealth then
+                    lowestHealth = player.Character.Humanoid.Health
+                    lowestPlayer = player.Character
+                end
+            end
+        end
+        
+        if lowestPlayer then
+            table.insert(characters, lowestPlayer)
+        end
+    elseif selectedTarget == "All NPCs" then
+        -- Target all NPCs in the workspace and its descendants
+        local function findNPCs(parent)
+            for _, obj in pairs(parent:GetChildren()) do
+                -- Check if it's an NPC (has Humanoid but not a Player)
+                if obj:FindFirstChild("Humanoid") and obj.Humanoid.Health > 0 then
+                    local isPlayerCharacter = false
+                    for _, player in pairs(game.Players:GetPlayers()) do
+                        if player.Character == obj then
+                            isPlayerCharacter = true
+                            break
+                        end
+                    end
+                    
+                    if not isPlayerCharacter then
+                        -- This is an NPC
+                        local distance = (localRoot.Position - obj:GetPivot().Position).Magnitude
+                        if distance <= killauraRange then
+                            print("Found NPC in range: " .. obj.Name .. " (Distance: " .. math.floor(distance) .. ")")
+                            table.insert(characters, obj)
+                        end
+                    end
+                end
+                
+                -- Recursively search for NPCs in descendants
+                findNPCs(obj)
+            end
+        end
+        
+        findNPCs(workspace)
+    end
+
+    return characters
+end
+
+-- Improved Kill Aura function with better debugging and attack delay
+local function performKillAura()
+    local currentTime = os.clock()
+    
+    -- Check if enough time has passed since the last attack
+    if currentTime - lastAttackTime < killauraDelay then
+        return
+    end
+    
+    local localPlayer = game.Players.LocalPlayer
+    local localChar = localPlayer.Character
+    local localRoot = localChar and localChar:FindFirstChild("HumanoidRootPart")
+    
+    if not localRoot then 
+        print("Kill Aura: Local character root not found")
+        return 
+    end
+    
+    if not isHoldingMelee() then 
+        print("Kill Aura: Not holding melee weapon")
+        return 
+    end
+    
+    local targets = getTargetCharacters()
+    print("Kill Aura: Found " .. #targets .. " potential targets")
+    
+    -- Loop through all the characters to target
+    for _, character in pairs(targets) do
+        local targetRoot = character:FindFirstChild("HumanoidRootPart") or character:FindFirstChild("Torso") or character:FindFirstChild("UpperTorso")
+        local targetPart = character:FindFirstChild(selectedHitbox) or targetRoot
+        
+        -- Ensure that the necessary parts exist and aren't nil
+        if targetRoot and targetPart then
+            local distance = (localRoot.Position - targetRoot.Position).Magnitude
+            
+            -- If the target is within the range, attempt to attack
+            if distance <= killauraRange then
+                print("Kill Aura: Attacking " .. character.Name .. " (Distance: " .. math.floor(distance) .. ")")
+                
+                -- Try multiple possible remote event paths
+                local success = false
+                
+                -- Attempt method 1: Combat.Hit in ReplicatedStorage
+                if game:GetService("ReplicatedStorage"):FindFirstChild("Combat") and 
+                   game:GetService("ReplicatedStorage").Combat:FindFirstChild("Hit") then
+                    pcall(function()
+                        game:GetService("ReplicatedStorage").Combat.Hit:FireServer(character, targetPart)
+                        success = true
+                    end)
+                end
+                
+                -- Attempt method 2: Direct melee tool activation
+                if not success then
+                    for _, tool in pairs(localChar:GetChildren()) do
+                        if tool:IsA("Tool") and tool:FindFirstChild("RemoteEvent") then
+                            pcall(function()
+                                tool.RemoteEvent:FireServer(character, targetPart)
+                                success = true
+                            end)
+                        end
+                    end
+                end
+                
+                -- Attempt method 3: Common combat remote names
+                if not success then
+                    local commonRemotes = {
+                        game:GetService("ReplicatedStorage"):FindFirstChild("MeleeDamage"),
+                        game:GetService("ReplicatedStorage"):FindFirstChild("meleeEvent"),
+                        game:GetService("ReplicatedStorage"):FindFirstChild("Attack"),
+                        game:GetService("ReplicatedStorage"):FindFirstChild("HitEvent")
+                    }
+                    
+                    for _, remote in pairs(commonRemotes) do
+                        if remote and not success then
+                            pcall(function()
+                                remote:FireServer(character, targetPart)
+                                success = true
+                            end)
+                        end
+                    end
+                end
+                
+                if success then
+                    print("Kill Aura: Successfully attacked " .. character.Name)
+                    lastAttackTime = currentTime -- Update the last attack time
+                else
+                    print("Kill Aura: Failed to find attack remote for " .. character.Name)
+                end
+            end
+        else
+            print("Kill Aura: Target parts missing for " .. character.Name)
+        end
+    end
+end
+
+-- Kill Aura toggle with settings
+Section1:AddToggle({
+    text = "Kill Aura",
+    state = false,
+    flag = "KillAura_Toggle",
+    callback = function(state)
+        killauraEnabled = state
+        
+        if state then
+            getgenv().killauraLoop = game:GetService("RunService").Heartbeat:Connect(function()
+                if killauraEnabled then
+                    performKillAura()
+                end
+            end)
+        else
+            if getgenv().killauraLoop then
+                getgenv().killauraLoop:Disconnect()
+            end
+        end
+    end
+})
+
+Section1:AddList({
+    text = "Target Selection",
+    tooltip = "Choose who to target with Kill Aura",
+    values = targetOptions,
+    selected = selectedTarget,
+    flag = "KillAura_Target",
+    callback = function(value)
+        selectedTarget = value
+    end
+})
+
+Section1:AddList({
+    text = "Hitbox Selection",
+    tooltip = "Choose which body part to target",
+    values = hitboxOptions,
+    selected = selectedHitbox,
+    flag = "KillAura_Hitbox",
+    callback = function(value)
+        selectedHitbox = value
+    end
+})
+
+Section1:AddSlider({
+    text = "Kill Aura Range",
+    tooltip = "Maximum distance to target players",
+    min = 1,
+    max = 30,
+    float = 1,
+    flag = "KillAura_Range",
+    value = killauraRange,
+    callback = function(value)
+        killauraRange = value
+    end
+})
+
+-- Added Attack Delay slider for Kill Aura
+Section1:AddSlider({
+    text = "Attack Delay",
+    tooltip = "Delay between attacks in seconds",
+    min = 0.05,
+    max = 2,
+    float = 0.05,
+    flag = "KillAura_Delay",
+    value = killauraDelay,
+    callback = function(value)
+        killauraDelay = value
+    end
+})
+
+local Time = (string.format("%."..tostring(Decimals).."f", os.clock() - Clock))
+library:SendNotification(("Loaded In "..tostring(Time)), 6)
+
+--[[
+    --Window1:SetOpen(false)
+    makefolder("Title Here")
+    library:SetTheme(Default)
+    library:GetConfig(Default)
+    library:LoadConfig(Default)
+    library:SaveConfig(Default)
+]]
