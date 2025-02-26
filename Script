@@ -449,60 +449,119 @@ local function getTargetCharacters()
 end
 
 -- Improved Kill Aura function with better attack methods
-local function performKillAura()
-    local currentTime = os.clock()
+function performKillAura()
+    local currentTime = tick()
     
     -- Check if enough time has passed since the last attack
     if currentTime - lastAttackTime < killauraDelay then
         return
     end
     
-    local localPlayer = game.Players.LocalPlayer
-    local localChar = localPlayer.Character
-    local localRoot = localChar and localChar:FindFirstChild("HumanoidRootPart")
+    -- Get all players
+    local players = game:GetService("Players"):GetPlayers()
+    local localPlayer = game:GetService("Players").LocalPlayer
+    local localCharacter = localPlayer.Character
+    local localRoot = localCharacter and localCharacter:FindFirstChild("HumanoidRootPart")
     
-    if not localRoot then 
-        print("Kill Aura: Local character root not found")
-        return 
+    if not localRoot then
+        print("Kill Aura Debug: Local character or root part not found")
+        return
     end
     
-    if not isHoldingMelee() then 
-        print("Kill Aura: Not holding melee weapon or no combat system detected")
-        return 
-    end
+    -- Filter and sort potential targets
+    local potentialTargets = {}
     
-    local targets = getTargetCharacters()
-    print("Kill Aura: Found " .. #targets .. " potential targets")
-    
-    -- Loop through all the characters to target
-    for _, character in pairs(targets) do
-        local targetRoot = character:FindFirstChild("HumanoidRootPart") or character:FindFirstChild("Torso") or character:FindFirstChild("UpperTorso")
-        local targetPart = character:FindFirstChild(selectedHitbox) or targetRoot
-        
-        -- Ensure that the necessary parts exist and aren't nil
-        if targetRoot and targetPart then
-            local distance = (localRoot.Position - targetRoot.Position).Magnitude
+    for _, player in pairs(players) do
+        if player ~= localPlayer then
+            local character = player.Character
+            local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+            local root = character and character:FindFirstChild("HumanoidRootPart")
             
-            -- If the target is within the range, attempt to attack
-            if distance <= killauraRange then
-                print("Kill Aura: Attacking " .. character.Name .. " (Distance: " .. math.floor(distance) .. ")")
+            if character and humanoid and root and humanoid.Health > 0 then
+                local distance = (root.Position - localRoot.Position).Magnitude
                 
-                -- Try multiple possible attack methods
-                local success = false
-                
-                -- Method 1: Try to use the tool's RemoteEvent directly
-                local equippedTool = nil
-                for _, tool in pairs(localChar:GetChildren()) do
-                    if tool:IsA("Tool") then
-                        equippedTool = tool
-                        break
+                -- Check if player is within range
+                if distance <= killauraRange then
+                    -- Check target selection criteria
+                    local isTarget = false
+                    
+                    if selectedTarget == "All Players" then
+                        isTarget = true
+                    elseif selectedTarget == "Closest Player" then
+                        isTarget = true -- We'll sort by distance later
+                    elseif selectedTarget == "Lowest Health" then
+                        isTarget = true -- We'll sort by health later
+                    end
+                    
+                    if isTarget then
+                        table.insert(potentialTargets, {
+                            player = player,
+                            character = character,
+                            humanoid = humanoid,
+                            root = root,
+                            distance = distance,
+                            health = humanoid.Health
+                        })
                     end
                 end
-                
+            end
+        end
+    end
+    
+    -- Debug message for potential targets
+    print("Kill Aura Debug: Found " .. #potentialTargets .. " potential targets within range " .. killauraRange)
+    
+    -- Sort targets based on selection criteria
+    if selectedTarget == "Closest Player" then
+        table.sort(potentialTargets, function(a, b)
+            return a.distance < b.distance
+        end)
+    elseif selectedTarget == "Lowest Health" then
+        table.sort(potentialTargets, function(a, b)
+            return a.health < b.health
+        end)
+    end
+    
+    -- Debug: List all potential targets
+    for i, target in ipairs(potentialTargets) do
+        print("Kill Aura Debug: Target #" .. i .. ": " .. target.player.Name .. 
+              " (Distance: " .. string.format("%.2f", target.distance) .. 
+              ", Health: " .. string.format("%.1f", target.health) .. ")")
+    end
+    
+    -- Attack targets
+    for _, targetData in ipairs(potentialTargets) do
+        local character = targetData.character
+        local targetRoot = targetData.root
+        
+        -- Get the target part based on selected hitbox
+        local targetPart
+        if selectedHitbox == "Head" then
+            targetPart = character:FindFirstChild("Head")
+        elseif selectedHitbox == "Torso" then
+            targetPart = character:FindFirstChild("UpperTorso") or character:FindFirstChild("Torso")
+        elseif selectedHitbox == "HumanoidRootPart" then
+            targetPart = targetRoot
+        end
+        
+        if targetPart then
+            -- Method 1: Try to use equipped tool (if any)
+            local success = false
+            local equippedTool = localCharacter:FindFirstChildOfClass("Tool")
+            
+            if not equippedTool then
+                print("Kill Aura Debug: No tool equipped, Force Attack is " .. (forceAttack and "enabled" or "disabled"))
+            end
+            
+            -- Check if we have a tool or if force attack is enabled
+            if equippedTool or forceAttack then
+                -- If we have a tool, try to use it
                 if equippedTool then
-                    -- Try to find and use the tool's RemoteEvent
+                    print("Kill Aura Debug: Attempting to use equipped tool: " .. equippedTool.Name)
+                    
+                    -- Try to find and use the tool's remote
                     for _, obj in pairs(equippedTool:GetDescendants()) do
-                        if obj:IsA("RemoteEvent") then
+                        if (obj:IsA("RemoteEvent") or obj:IsA("RemoteFunction")) and not success then
                             pcall(function()
                                 obj:FireServer(character, targetPart)
                                 success = true
@@ -525,10 +584,13 @@ local function performKillAura()
                             print("Kill Aura: Activated tool directly")
                         end)
                     end
+                else
+                    print("Kill Aura Debug: No tool equipped, trying remote methods directly")
                 end
                 
                 -- Method 2: Try common combat remotes in ReplicatedStorage
                 if not success then
+                    print("Kill Aura Debug: Trying common combat remotes...")
                     local commonRemotes = {
                         {"Combat", "Hit"},
                         {"Combat", "Attack"},
@@ -586,6 +648,7 @@ local function performKillAura()
                 
                 -- Method 3: Search for any RemoteEvent that might be related to combat
                 if not success then
+                    print("Kill Aura Debug: Searching for combat-related remotes...")
                     local function searchForCombatRemotes(parent)
                         for _, obj in pairs(parent:GetChildren()) do
                             if obj:IsA("RemoteEvent") and not success then
@@ -613,11 +676,13 @@ local function performKillAura()
                 end
                 
                 if success then
-                    print("Kill Aura: Successfully attacked " .. character.Name)
+                    print("Kill Aura Debug: Successfully attacked " .. character.Name)
                     lastAttackTime = currentTime -- Update the last attack time
                 else
-                    print("Kill Aura: Failed to find attack method for " .. character.Name)
+                    print("Kill Aura Debug: All attack methods failed for " .. character.Name)
                 end
+            else
+                print("Kill Aura Debug: Attack skipped - No tool and Force Attack is disabled")
             end
         else
             print("Kill Aura: Target parts missing for " .. character.Name)
